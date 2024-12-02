@@ -1,0 +1,927 @@
+
+src/config/db.js/config.js
+src/config/db.js/connection.js
+src/controllers/authController.js
+src/controllers/claseController.js
+src/controllers/autoescuelaController.js
+src/controllers/usuarioController.js
+src/helpers/primerDirector.js
+src/helpers/comparePass.js
+src/helpers/crearJsonWebToken.js
+src/hooks/autoescuelaHookTrim.js
+src/hooks/hashPass.js
+src/middleware/authMiddle.js
+src/models/autoescuela/Autoescuela.js
+src/models/clase/clase.js
+src/models/usuario/Usuario.js
+src/models/index.js:
+src/routes/autoescuelaRoutes.js
+src/routes/authRoutes.js
+src/index.js
+
+src/controllers/autoescuelaController.js: 
+import Autoescuela from "../models/autoescuela/Autoescuela.js";
+import { Usuario } from "../models/index.js";
+import { comparePassHash } from "../helpers/comparePass.js";
+import { crearJWT } from "../helpers/crearJsonWebToken.js";
+import { createDirector } from "../helpers/primerDirector.js";
+
+const registrar = async ( req, res ) => {
+
+    const { name, email, password } = req.body;
+
+    if(!name || !email || !password) {
+        const error = new Error('Los campos nombre, email y constraseña son obligatorios');
+        return res.status(400).json({ msg: error.message });
+    }
+
+    try {
+        // REVISAR SI UN USUARIO ESTA REGISTRADO
+        const existeEmail = await Autoescuela.findOne({ 
+            where: {
+                email
+            }
+        })
+
+        const existeEmailUsuario = await Usuario.findOne({
+            where: {
+                email
+            }
+        })
+
+        // PREVENIR DUPLICADOS
+        if(existeEmail || existeEmailUsuario) {
+            const error = new Error('Usuario ya registrado');
+            return res.status(400).json({msg: error.message});
+        }
+
+        // GUARDAR AUTOESCUELA
+        const autoescuela = new Autoescuela(req.body)
+        const autoescuelaGuardada = await autoescuela.save()
+
+
+
+        const directorGuardado = await createDirector(autoescuelaGuardada);
+
+
+        // RESPONDER CON AMBOS RESULTADOS
+        res.status(201).json({
+            msg: 'Autoescuela registrada exitosamente',
+            autoescuela,
+            director: directorGuardado,
+        });
+    } catch (error) {
+        console.log(error)
+    }
+}
+
+
+const perfil = ( req, res ) => {
+    
+    const { autoescuela } = req
+    
+    res.json({ autoescuela })
+}
+
+export {
+    registrar,
+    perfil,
+}
+
+src/controllers/usuarioController.js:
+import Usuario from "../models/usuario/Usuario.js";
+import Autoescuela from "../models/autoescuela/Autoescuela.js";  // Asegúrate de tener acceso al modelo Autoescuela
+
+// Controlador para crear usuarios
+const crearUsuario = async (req, res) => {
+    const { name, email, password, role } = req.body;
+    const autoescuelaId = req.autoescuela?.id || req.usuario?.id_autoescuela;
+
+    if (!autoescuelaId) {
+        return res.status(403).json({ msg: 'No tienes permisos para realizar esta acción.' });
+    }
+
+    if (!name || !email || !password || !role) {
+        return res.status(400).json({ msg: 'Todos los campos (name, email, password, role) son obligatorios.' });
+    }
+
+    const rolesPermitidos = ['administrativo', 'profesor', 'estudiante'];
+    if (!rolesPermitidos.includes(role)) {
+        return res.status(400).json({ msg: El rol debe ser uno de los siguientes: ${rolesPermitidos.join(', ')} });
+    }
+
+    try {
+        const autoescuelaExistente = await Autoescuela.findByPk(autoescuelaId);
+        if (!autoescuelaExistente) {
+            return res.status(400).json({ msg: 'La autoescuela asociada no existe.' });
+        }
+
+        const existeUsuario = await Usuario.findOne({ where: { email } });
+        if (existeUsuario) {
+            return res.status(400).json({ msg: 'El correo ya está registrado. Usa otro correo.' });
+        }
+
+        const nuevoUsuario = await Usuario.create({
+            name,
+            email,
+            password,
+            role,
+            id_autoescuela: autoescuelaId,
+        });
+
+        const usuarioRes = {
+            id: nuevoUsuario.id,
+            name: nuevoUsuario.name,
+            email: nuevoUsuario.email,
+            role: nuevoUsuario.role,
+            id_autoescuela: nuevoUsuario.id_autoescuela,
+        };
+
+        res.status(201).json({ msg: 'Usuario creado exitosamente', usuario: usuarioRes });
+    } catch (error) {
+        console.error("Error al crear el usuario:", error);
+        res.status(500).json({ msg: 'Hubo un error al intentar crear el usuario. Inténtalo nuevamente.' });
+    }
+};
+
+export { crearUsuario };
+
+
+src/controllers/authController.js:
+import Autoescuela from "../models/autoescuela/Autoescuela.js";
+import Usuario from "../models/usuario/Usuario.js";
+import { comparePassHash } from "../helpers/comparePass.js";
+import { crearJWT } from "../helpers/crearJsonWebToken.js";
+
+const autenticar = async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        // Buscar en autoescuelas
+        let usuario = await Autoescuela.findOne({ where: { email } });
+
+        // Si no es una autoescuela, buscar en usuarios
+        if (!usuario) {
+            usuario = await Usuario.findOne({ where: { email } });
+        }
+
+        if (!usuario) {
+            return res.status(401).json({ msg: 'El usuario no existe' });
+        }
+
+        // Verificar contraseña
+        const isPasswordCorrect = await comparePassHash(password, usuario.password);
+
+        if (!isPasswordCorrect) {
+            return res.status(401).json({ msg: 'La contraseña es incorrecta' });
+        }
+
+        // Generar y devolver token
+        res.json({ token: crearJWT(usuario.id) });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ msg: 'Error en el servidor' });
+    }
+};
+
+
+export {
+    autenticar,
+}
+src/controllers/claseController.js:
+import { Op } from 'sequelize';
+import Clase from "../models/clase/clase.js";
+import Usuario from "../models/usuario/Usuario.js";
+import { Autoescuela } from "../models/index.js";
+import dayjs from "dayjs";
+
+export const crearClase = async (req, res) => {
+    const { id_profesor, id_alumno, fecha, hora, duration, description } = req.body;
+    const autoescuela_id = req.usuario?.id_autoescuela;
+
+    if (!autoescuela_id) {
+        return res.status(400).json({ msg: "El ID de la autoescuela es obligatorio." });
+    }
+    if (!fecha || !hora || !duration) {
+        return res.status(400).json({ msg: "Fecha, hora y duración son obligatorias." });
+    }
+
+    const horaRegex = /^([0-1]?[0-9]|2[0-3]):([0-5]?[0-9]):([0-5]?[0-9])$/;
+    if (!horaRegex.test(hora)) {
+        return res.status(400).json({ msg: "La hora no tiene un formato válido (HH:mm:ss)." });
+    }
+
+    try {
+        // Verificar que la autoescuela existe
+        const autoescuela = await Autoescuela.findByPk(autoescuela_id);
+        if (!autoescuela) {
+            return res.status(404).json({ msg: "La autoescuela no existe." });
+        }
+
+        let profesor = null;
+        let alumno = null;
+
+        // Verificar el profesor
+        if (id_profesor) {
+            profesor = await Usuario.findOne({
+                where: {
+                    id: id_profesor,
+                    role: 'profesor',
+                    id_autoescuela: autoescuela_id,
+                },
+            });
+
+            if (!profesor) {
+                return res.status(404).json({ msg: "El profesor no existe o no pertenece a esta autoescuela." });
+            }
+
+            // Verificar disponibilidad del profesor
+            const conflicto = await verificarConflictoHorario(profesor.id, fecha, hora, duration);
+            if (conflicto) {
+                return res.status(400).json({ msg: "El profesor tiene un conflicto de horario con otra clase." });
+            }
+        } else {
+            // Si no se pasa el ID del profesor, mantenemos al profesor asignado al alumno si ya existe
+            if (id_alumno) {
+                alumno = await Usuario.findOne({
+                    where: {
+                        id: id_alumno,
+                        role: 'estudiante',
+                        id_autoescuela: autoescuela_id,
+                    },
+                });
+
+                if (!alumno) {
+                    return res.status(404).json({ msg: "El alumno no existe o no pertenece a esta autoescuela." });
+                }
+
+                // Buscar si el alumno ya tiene una clase con un profesor asignado
+                const claseExistente = await Clase.findOne({
+                    where: { id_alumno, id_profesor: { [Op.not]: null } },
+                    order: [["fecha", "DESC"]],
+                });
+
+                if (claseExistente) {
+                    // Si ya existe una clase con un profesor asignado, usamos el mismo profesor
+                    profesor = await Usuario.findOne({ where: { id: claseExistente.id_profesor } });
+                } else {
+                    // Si no tiene un profesor asignado, asignamos uno disponible
+                    const profesores = await Usuario.findAll({
+                        where: { role: "profesor", id_autoescuela: autoescuela_id },
+                    });
+
+                    if (!profesores.length) {
+                        return res.status(404).json({ msg: "No hay profesores disponibles en esta autoescuela." });
+                    }
+
+                    const profesoresDisponibles = await Promise.all(
+                        profesores.map(async (profesor) => {
+                            const conflicto = await verificarConflictoHorario(profesor.id, fecha, hora, duration);
+                            return conflicto ? null : profesor;
+                        })
+                    );
+
+                    const disponibles = profesoresDisponibles.filter(Boolean);
+
+                    if (!disponibles.length) {
+                        return res.status(400).json({ msg: "No hay profesores disponibles en esta fecha, hora y duración." });
+                    }
+
+                    profesor = disponibles[Math.floor(Math.random() * disponibles.length)];
+                }
+            }
+        }
+
+        // Verificar si el alumno existe y pertenece a la autoescuela
+        if (id_alumno) {
+            alumno = await Usuario.findOne({
+                where: {
+                    id: id_alumno,
+                    role: 'estudiante',
+                    id_autoescuela: autoescuela_id,
+                },
+            });
+
+            if (!alumno) {
+                return res.status(404).json({ msg: "El alumno no existe o no pertenece a esta autoescuela." });
+            }
+
+            // Verificar si el alumno ya tiene una clase con otro profesor en el mismo horario
+            const conflictoAlumno = await verificarConflictoAlumno(id_alumno, fecha, hora, duration, id_profesor);
+            if (conflictoAlumno) {
+                return res.status(400).json({ msg: "El alumno ya tiene una clase en ese horario con otro profesor." });
+            }
+        }
+
+        // Crear la clase
+        const formattedFecha = dayjs(fecha, "YYYY-MM-DD").format("YYYY-MM-DD");
+        const nuevaClase = await Clase.create({
+            id_profesor: profesor.id,
+            id_autoescuela: autoescuela_id,
+            fecha: formattedFecha,
+            hora,
+            duration,
+            description,
+            id_alumno: alumno ? alumno.id : null,  // Asignar el alumno si existe
+        });
+
+        // Obtener la clase con profesor y alumno
+        const claseConProfesorYAlumno = await Clase.findOne({
+            where: { id: nuevaClase.id },
+            include: [
+                {
+                    model: Usuario,
+                    as: "profesor",
+                    attributes: ["name", "email"]
+                },
+                {
+                    model: Usuario,
+                    as: "alumno", // Puedes crear esta relación en el modelo de la clase
+                    attributes: ["name", "email"]
+                }
+            ]
+        });
+
+        res.status(201).json({ msg: "Clase creada exitosamente", clase: claseConProfesorYAlumno });
+
+    } catch (error) {
+        console.error("Error al crear la clase:", error);
+        res.status(500).json({ msg: "Hubo un error al crear la clase." });
+    }
+};
+
+
+// Función para verificar si el alumno tiene una clase con otro profesor en el mismo horario
+const verificarConflictoAlumno = async (id_alumno, fecha, hora, duration, id_profesor) => {
+    const inicioNuevaClase = dayjs(`${fecha} ${hora}`, "YYYY-MM-DD HH:mm");
+    const finNuevaClase = inicioNuevaClase.add(duration, "minute");
+
+    // Buscar si el alumno tiene clases en el mismo horario
+    const clasesAlumno = await Clase.findAll({
+        where: {
+            id_alumno,
+            fecha: dayjs(fecha, "YYYY-MM-DD").format("YYYY-MM-DD"),
+        },
+    });
+
+    for (const clase of clasesAlumno) {
+        const inicioClaseExistente = dayjs(`${clase.fecha} ${clase.hora}`, "YYYY-MM-DD HH:mm");
+        const finClaseExistente = inicioClaseExistente.add(clase.duration, "minute");
+
+        // Verificar si el alumno tiene clase en el mismo horario y con un profesor diferente
+        if (
+            (inicioNuevaClase.isBefore(finClaseExistente) && inicioNuevaClase.isAfter(inicioClaseExistente)) || 
+            (finNuevaClase.isAfter(inicioClaseExistente) && finNuevaClase.isBefore(finClaseExistente)) || 
+            (inicioNuevaClase.isSame(inicioClaseExistente) || finNuevaClase.isSame(finClaseExistente))
+        ) {
+            // Si la clase existe con otro profesor, retornar true
+            if (clase.id_profesor !== id_profesor) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+};
+
+
+// Función para verificar conflictos de horario
+const verificarConflictoHorario = async (id_profesor, fecha, hora, duration) => {
+    const inicioNuevaClase = dayjs(`${fecha} ${hora}`, "YYYY-MM-DD HH:mm");
+    const finNuevaClase = inicioNuevaClase.add(duration, "minute");
+
+    const clasesProfesor = await Clase.findAll({
+        where: {
+            id_profesor,
+            fecha: dayjs(fecha, "YYYY-MM-DD").format("YYYY-MM-DD"),
+        },
+    });
+
+    for (const clase of clasesProfesor) {
+        const inicioClaseExistente = dayjs(`${clase.fecha} ${clase.hora}`, "YYYY-MM-DD HH:mm");
+        const finClaseExistente = inicioClaseExistente.add(clase.duration, "minute");
+
+        if (
+            (inicioNuevaClase.isBefore(finClaseExistente) && inicioNuevaClase.isAfter(inicioClaseExistente)) || 
+            (finNuevaClase.isAfter(inicioClaseExistente) && finNuevaClase.isBefore(finClaseExistente)) || 
+            (inicioNuevaClase.isSame(inicioClaseExistente) || finNuevaClase.isSame(finClaseExistente))
+        ) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
+
+
+
+// Obtener todas las clases de una autoescuela
+export const obtenerClases = async (req, res) => {
+    const { id_autoescuela } = req.params;
+
+    try {
+        const clases = await Clase.findAll({
+            where: { id_autoescuela },
+            include: [{ model: Usuario, as: "profesor", attributes: ["id", "name", "email"] }],
+        });
+
+        res.status(200).json({ clases });
+    } catch (error) {
+        console.error("Error al obtener las clases:", error);
+        res.status(500).json({ msg: "Hubo un error al obtener las clases." });
+    }
+};
+
+ 
+src/helpers/primerDirector.js:
+import { Usuario } from "../models/index.js";
+
+export const createDirector = async (autoescuela) => {
+
+    const { name, password, id } = autoescuela;
+
+    // Formatear el nombre de la autoescuela para ser utilizado en el correo (sin espacios y en minúsculas)
+    const autoescuelaNameFormatted = autoescuela.name.replace(/ /g, '').toLowerCase();
+
+    // Generar una cadena aleatoria (sufijo) para asegurar la unicidad del correo del director
+    const randomSuffix = Math.random().toString(36).substring(2, 8);  // Genera una cadena aleatoria de 6 caracteres
+    
+    // Crear un correo único para el director con el nombre de la autoescuela + el sufijo aleatorio
+    const directorEmail = ${autoescuelaNameFormatted}_${randomSuffix}@${autoescuelaNameFormatted}.com;
+
+
+    const director = new Usuario({
+        name: Director ${name},
+        email: directorEmail,
+        password,
+        role: 'director',
+        id_autoescuela: id,
+    })
+
+    const directorGuardado = await director.save();
+
+    return directorGuardado;
+}
+
+ 
+src/helpers/comparePass.js:
+import bcrypt from "bcrypt";
+
+
+export const comparePassHash = async (passwordForm, passwordHashed) => {
+    return await bcrypt.compare(passwordForm, passwordHashed);
+}
+ 
+src/helpers/crearJsonWebToken.js:
+import jwt from "jsonwebtoken";
+
+export const crearJWT = ( id ) => {
+    return jwt.sign({ id }, process.env.JWT_SECRET, {
+        expiresIn: "1d",
+    });
+}
+
+ 
+src/hooks/autoescuelaHookTrim.js:
+export const trimHookAuto = ( autoescuela ) => {
+    if( autoescuela.email ) autoescuela.email = autoescuela.email.trim();
+    if( autoescuela.contact_info ) autoescuela.contact_info = autoescuela.contact_info.trim();
+} 
+ 
+src/hooks/hashPass.js:
+
+import bcrypt from "bcrypt";
+
+export const hashPassword = async ( model ) => {
+
+    const bcryptRegex = /^\$2[ayb]\$.{56}$/;
+
+    if (model.password && !bcryptRegex.test(model.password)) {
+        const salt = await bcrypt.genSalt(12);
+        model.password = await bcrypt.hash(model.password, salt)
+    }
+
+} 
+src/middleware/authMiddle.js:
+import jwt from 'jsonwebtoken';
+import Autoescuela from '../models/autoescuela/Autoescuela.js';
+import Usuario from '../models/usuario/Usuario.js';
+
+export const checkAuth = async (req, res, next) => {
+    let token;
+
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+        try {
+            token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+            // Buscar Autoescuela
+            req.autoescuela = await Autoescuela.findByPk(decoded.id, {
+                attributes: { exclude: ['password', 'token'] }
+            });
+
+            // Si no es Autoescuela, buscar Usuario
+            if (!req.autoescuela) {
+                req.usuario = await Usuario.findByPk(decoded.id, {
+                    attributes: { exclude: ['password', 'token'] }
+                });
+
+                if (!req.usuario) {
+                    throw new Error();
+                }
+            }
+
+            return next();
+        } catch (error) {
+            console.error('Error en la verificación del token:', error);
+            return res.status(403).json({ msg: El token no es válido: ${error.message} });
+        }
+    }
+
+    return res.status(403).json({ msg: 'El token no existe' });
+};
+
+// Middleware adicional para roles
+export const checkRole = (rolesPermitidos) => (req, res, next) => {
+    const usuario = req.usuario;
+    const autoescuela = req.autoescuela;
+
+    // Verificar roles de usuarios
+    if (usuario && rolesPermitidos.includes(usuario.role)) {
+        return next();
+    }
+
+    // Permitir autoescuelas si están incluidas en rolesPermitidos
+    if (autoescuela && rolesPermitidos.includes('autoescuela')) {
+        return next();
+    }
+
+    return res.status(403).json({ msg: 'No tienes permisos para realizar esta acción.' });
+};
+
+
+ 
+src/models/autoescuela/Autoescuela.js:
+import { DataTypes, Model, UUIDV4 } from "sequelize";
+import db from "../../config/db/connection.js";
+import { trimHookAuto } from "../../hooks/autoescuelaHookTrim.js";
+import { hashPassword } from "../../hooks/hashPass.js";
+
+
+
+class Autoescuela extends Model {} 
+
+Autoescuela.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: UUIDV4,
+        primaryKey: true,
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: {
+            msg: 'El correo ya existe'
+        },
+        validate: {
+            isEmail: {
+                msg: 'Agrega un correo válido'
+            },
+            notEmpty: {
+                msg: 'Ingrese un correo electrónico'
+            },
+        },
+    },
+    contact_info: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    token: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    role: {
+        type: DataTypes.STRING,
+        defaultValue: 'autoescuela',
+        allowNull: false,
+
+    },
+},{
+    sequelize: db,
+    modelName: 'Autoescuela',
+    tableName: 'autoescuela'
+})
+
+Autoescuela.addHook('beforeSave', trimHookAuto);
+Autoescuela.addHook('beforeSave', hashPassword);
+
+export default Autoescuela;
+ 
+src/models/usuario/Usuario.js:
+import { DataTypes, Model, UUIDV4 } from "sequelize";
+import db from "../../config/db/connection.js";
+import { trimHookAuto } from "../../hooks/autoescuelaHookTrim.js";
+import { hashPassword } from "../../hooks/hashPass.js";
+
+
+
+class Usuario extends Model {} 
+
+Usuario.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: UUIDV4,
+        primaryKey: true,
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: {
+            msg: 'El correo ya existe'
+        },
+        validate: {
+            isEmail: {
+                msg: 'Agrega un correo válido'
+            },
+            notEmpty: {
+                msg: 'Ingrese un correo electrónico'
+            },
+        },
+    },
+    contact_info: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    dni: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    role: {
+        type: DataTypes.ENUM,
+        values: ['administrativo', 'profesor', 'estudiante', 'director'],
+        allowNull: false,
+        defaultValue: 'estudiante'
+    },
+    id_autoescuela: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'autoescuela',
+            key: 'id',
+        },
+    },
+},{
+    sequelize: db,
+    modelName: 'Usuario',
+    tableName: 'usuario'
+})
+
+Usuario.addHook('beforeSave', trimHookAuto);
+Usuario.addHook('beforeSave', hashPassword);
+
+export default Usuario;
+
+
+
+src/models/clase/clase.js:
+import { DataTypes, Model, UUIDV4 } from "sequelize";
+import db from "../../config/db/connection.js";
+import dayjs from "dayjs";
+
+class Clase extends Model {
+    toJSON() {
+        // Modifica el método toJSON para formatear fechas al enviar al frontend
+        const values = { ...this.get() };
+
+        // Aquí no necesitamos hacer cambios a la hora, ya que la hora está en formato TIME
+        values.fecha = values.fecha ? dayjs(values.fecha).format("DD-MM-YYYY") : null;
+        values.hora = values.hora ? values.hora : null;  // Deja la hora tal cual, no la formatees aquí
+
+        values.hora_fin = values.hora_fin ? values.hora_fin : null;
+
+        return values;
+    }
+}
+
+Clase.init(
+    {
+        id: {
+            type: DataTypes.UUID,
+            defaultValue: UUIDV4,
+            primaryKey: true,
+        },
+        fecha: {
+            type: DataTypes.DATEONLY, // Fecha en formato estándar YYYY-MM-DD
+            allowNull: false,
+        },
+        hora: {
+            type: DataTypes.TIME, // Hora en formato HH:mm:ss
+            allowNull: false,
+        },
+        duration: {
+            type: DataTypes.INTEGER, // Duración en minutos
+            allowNull: false,
+        },
+        hora_fin: {
+            type: DataTypes.TIME, // Hora de fin calculada
+            allowNull: true,
+        },
+        description: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        id_profesor: {
+            type: DataTypes.UUID,
+            allowNull: false,
+            references: {
+                model: 'usuario',
+                key: 'id',
+            },
+        },
+        id_autoescuela: {
+            type: DataTypes.UUID,
+            allowNull: false,
+            references: {
+                model: 'autoescuela',
+                key: 'id',
+            },
+        },
+        id_alumno: {
+            type: DataTypes.UUID,
+            allowNull: true,  // El alumno no es obligatorio al crear la clase
+            references: {
+                model: 'usuario',
+                key: 'id',
+            },
+        },
+    },
+    {
+        sequelize: db,
+        modelName: "Clase",
+        tableName: "clase",
+        hooks: {
+            beforeSave: (clase) => {
+                if (clase.fecha && clase.hora && clase.duration) {
+                    const inicio = dayjs(`${clase.fecha}T${clase.hora}`);
+                    const fin = inicio.add(clase.duration, "minute");
+                    clase.hora_fin = fin.format("HH:mm");
+                }
+            },
+        },
+    }
+);
+
+export default Clase;
+
+src/models/index.js:
+import db from "../config/db/connection.js";
+import Autoescuela from "./autoescuela/Autoescuela.js";
+import Usuario from "./usuario/Usuario.js";
+import Clase from "./clase/clase.js";
+
+// RELACION AUTOESCUELA A USUARIO (USUARIO PERTENECE A AUTOESCUELA)
+Autoescuela.hasMany(Usuario, { foreignKey: 'id_autoescuela', as: 'usuarios' });
+Usuario.belongsTo(Autoescuela, { foreignKey: 'id_autoescuela', as: 'autoescuela' });
+
+// RELACION ENTRE CLASE Y USUARIO (CLASE PERTENECE A UN PROFESOR)
+Usuario.hasMany(Clase, { foreignKey: "id_profesor", as: "clases" });
+Clase.belongsTo(Usuario, { foreignKey: "id_profesor", as: "profesor" });
+
+// RELACION ENTRE CLASE Y AUTOESCUELA (CLASE PERTENECE A UNA AUTOESCUELA)
+Autoescuela.hasMany(Clase, { foreignKey: "id_autoescuela", as: "clases" });
+Clase.belongsTo(Autoescuela, { foreignKey: "id_autoescuela", as: "autoescuela" });
+
+Clase.belongsTo(Usuario, { foreignKey: 'id_alumno', as: 'alumno' });
+Usuario.hasMany(Clase, { foreignKey: 'id_alumno' });
+
+// Exportar modelos y conexión
+export {
+    db,
+    Autoescuela,
+    Usuario,
+};
+ 
+src/routes/autoescuelaRoutes.js:
+import { Router } from "express";
+import { perfil, registrar } from "../controllers/autoescuelaController.js";
+import { checkAuth } from "../middleware/authMiddle.js"
+// ROUTING APP GET
+
+const autoescuela = Router();
+autoescuela.post('/registro', registrar);
+
+// Autenticación y perfil
+autoescuela.get('/perfil', checkAuth, perfil);
+
+
+
+
+export default autoescuela; 
+src/routes/authRoutes.js:
+import express from 'express';
+import { autenticar } from '../controllers/authController.js';
+
+
+const router = express.Router();
+
+// Endpoint de autenticación
+router.post('/login', autenticar);
+
+export default router;
+
+src/routes/autoescuelaRoutes.js:
+import { Router } from "express";
+import { crearUsuario } from "../controllers/usuarioController.js";
+import { checkAuth, checkRole } from "../middleware/authMiddle.js"
+
+// Crear la instancia del Router
+const usuarioRouter = Router();
+
+// Ruta para crear un usuario (administrativo, profesor, estudiante)
+usuarioRouter.post(
+  '/registro',
+  checkAuth,
+  checkRole(['director', 'administrativo', 'autoescuela']),
+  crearUsuario
+);
+
+export default usuarioRouter;
+
+
+src/routes/claseRoutes.js
+import { Router } from "express";
+import { crearClase, obtenerClases } from "../controllers/claseController.js";
+import { checkAuth, checkRole } from "../middleware/authMiddle.js";
+
+const claseRouter = Router();
+
+// Crear una clase (solo para administrativos y profesores)
+claseRouter.post(
+    "/crear",
+    checkAuth,
+    checkRole(["administrativo", "director"]),
+    crearClase
+);
+
+// Obtener todas las clases de una autoescuela
+claseRouter.get(
+    "/autoescuela/:id_autoescuela",
+    checkAuth,
+    checkRole(["autoescuela", "administrativo", "profesor", 'director']),
+    obtenerClases
+);
+
+export default claseRouter;
+
+ 
+src/index.js:
+import express from 'express';
+import { connectDB } from './config/db/connection.js';
+import { PORT } from './config/db/config.js';
+import autoescuela from './routes/autoescuelaRoutes.js';
+import authRouter from './routes/authRoutes.js';
+import usuarioRouter from './routes/usuarioRoutes.js';
+import claseRouter from './routes/claseRoutes.js';
+// Conectar base de datos
+connectDB();
+
+
+const app = express();
+app.use(express.json())
+
+
+app.use('/api/autoescuelas', autoescuela)
+app.use('/api/auth', authRouter)
+app.use('/api/usuarios', usuarioRouter);
+app.use('/api/clases', claseRouter);
+
+
+
+app.listen(PORT, () => {
+    console.log(`App funcionando en el puerto ${PORT}`)
+})
