@@ -11,6 +11,7 @@ export const Login = () => {
   });
   const [alerta, setAlerta] = useState({ msg: "", error: false });
 
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
@@ -51,9 +52,8 @@ export const Login = () => {
         msg: "Login exitoso",
         error: false,
       });
+      navigate("/dashboard");
 
-      // Redirigir a la página de inicio o donde desees
-      navigate("/dashboard"); // O la ruta que necesites
     } catch (error) {
       setAlerta({
         msg: error.response?.data?.msg || "Ocurrió un error durante el inicio de sesión",

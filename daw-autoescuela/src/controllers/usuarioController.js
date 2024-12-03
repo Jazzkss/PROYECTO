@@ -4,7 +4,7 @@ import ClaseDisponible from "../models/clasedisponible/ClaseDisponible.js"; // A
 
 // Controlador para crear usuarios
 const crearUsuario = async (req, res) => {
-    const { name, email, password, role, clases_disponibles } = req.body;
+    const { name, email, password, role, clases_disponibles, contact_info, address, dni } = req.body;
     const autoescuelaId = req.autoescuela?.id || req.usuario?.id_autoescuela;
 
     if (!autoescuelaId) {
@@ -40,6 +40,9 @@ const crearUsuario = async (req, res) => {
             password,
             role,
             id_autoescuela: autoescuelaId,
+            contact_info,
+            address,
+            dni,
         });
 
         // Si el rol es "estudiante", manejar clases disponibles
@@ -72,6 +75,9 @@ const crearUsuario = async (req, res) => {
             name: nuevoUsuario.name,
             email: nuevoUsuario.email,
             role: nuevoUsuario.role,
+            contact_info: nuevoUsuario.contact_info,
+            address: nuevoUsuario.address,
+            dni: nuevoUsuario.dni,
             id_autoescuela: nuevoUsuario.id_autoescuela,
         };
 

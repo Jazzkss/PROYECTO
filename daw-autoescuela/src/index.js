@@ -10,11 +10,12 @@ import pagoClaseRoutes from './routes/pagoClaseRoutes.js';
 import profesoresRoutes from './routes/routesViews/rutasprofesores/profesoresRoutes.js';
 import alumnosRoutes from './routes/routesViews/rutasalumnos/alumnoRoutes.js';
 import administrativoRoutes from './routes/routesViews/rutasdministrativo/administrativoRoutes.js';
+import perfilRoute from './routes/perfilRoute.js';
 
 // Conectar base de datos
 connectDB();
 const app = express();
-const dominiosPermitidos = [process.env.FRONTEND_URL]
+const dominiosPermitidos = [process.env.FRONTEND_URL, 'http://localhost:4000/api']
 
 const corsOptions = {
     origin: function(origin, callback){
@@ -39,6 +40,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/usuarios', usuarioRouter);
 app.use('/api/clases', claseRouter);
 app.use('/api/pagos', pagoClaseRoutes);
+app.use('/api', perfilRoute);
 
 
 // RUTAS DE LAS VISTAS
