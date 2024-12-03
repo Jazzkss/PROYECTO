@@ -12,6 +12,9 @@ import { DirectorDashboard } from "./pages/privadas/DirectorDashboard"
 import { EstudianteDashboard } from "./pages/privadas/EstudianteDashboard"
 import { ProfesorDashboard } from "./pages/privadas/ProfesorDashboard"
 import ProtectedLayout from "./components/ProtectedLayout"
+import AlumnosPage from "./pages/privadas/administrativos/AlumnosPage"
+import ProfesoresPage from "./pages/privadas/administrativos/ProfesoresPage"
+import ProfesorDetalle from "./components/detalle/ProfesorDetalle"
 
 function App() {
 
@@ -68,6 +71,31 @@ function App() {
               element={
                 <ProtectedRoute requiredRole="administrativo">
                   <AdministrativoDashboard />
+                </ProtectedRoute>
+              }
+            />
+             {/* Agregamos las nuevas rutas para Alumnos y Profesores */}
+             <Route
+              path="/administrativo/alumnos"
+              element={
+                <ProtectedRoute requiredRole="administrativo">
+                  <AlumnosPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/administrativo/profesores"
+              element={
+                <ProtectedRoute requiredRole="administrativo">
+                  <ProfesoresPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profesor/:id"
+              element={
+                <ProtectedRoute requiredRole="administrativo">
+                  <ProfesorDetalle />
                 </ProtectedRoute>
               }
             />

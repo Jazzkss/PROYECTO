@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AddUserModal from "../../components/AddUserModal";
 import AddClassModal from "../../components/AddClassModal";
+import AlumnosList from "../../components/listados/AlumnosList";
+import ProfesoresList from "../../components/listados/ProfesoresList";
+import Card from "../../components/cards/Card";
 
 export const AdministrativoDashboard = () => {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
@@ -20,7 +23,20 @@ export const AdministrativoDashboard = () => {
 
       {/* Contenido principal */}
       <div className="flex-grow">
-        {/* Agrega aquí el contenido de tu dashboard */}
+
+        {/* Añadimos las tarjetas */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <Card 
+            title="Alumnos" 
+            route="/administrativo/alumnos" 
+            endpoint="/administrativo/autoescuela/alumnos" // Cambiar al endpoint correcto
+          />
+          <Card 
+            title="Profesores" 
+            route="/administrativo/profesores" 
+            endpoint="/administrativo/autoescuela/profesores" // Cambiar al endpoint correcto
+          />
+        </div>
       </div>
 
       {/* Botón flotante para abrir el modal de agregar usuario */}
